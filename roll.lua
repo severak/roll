@@ -16,7 +16,7 @@ function parseIni(filename)
 		if line:match("^;") then
 			--komentáø
 		elseif line:match("^.+=.+") then
-			local k,v = line:match("([^=]+)=(.+)%s")
+			local k,v = line:match("([^=]+)=(.+)")
 			ret[section] = ret[section] or {}
 			ret[section][k] = v
 		elseif line:match("%[.+%]") then
@@ -87,6 +87,17 @@ function mkdirIfNot(path)
 	end
 end
 
+function dirPart(path)
+	local dp= string.match(path,"([^=]+)/.+") or "."
+	return dp
+end
+
+function lastPart(path)
+	local dp= string.match(path,"[^=]+/(.+)") or path
+	return dp
+end
+
+
 driver={}
 ----
 -- DRIVERS
@@ -103,17 +114,50 @@ driver.nop.down=driver.nop.up
 
 driver["http-file"]={
 	down = function(conf)
-		if conf["local"]:match(".+/[^/]") then
-			local dir=conf["local"]:match("(.+)/[^/]")
-			mkdirIfNot(dir)
-		end
-		return os.execute(string.format("curl %s>%s",conf.remote, conf["local"]))==0
+		mkdirIfNot(dirPart(conf["local"]))
+		return os.execute(string.format("wget -O %s %s", conf["local"], conf.remote))==0
 	end,
 	up = function(conf)
 		return false
 	end,
 	away = function(conf)
-		return os.execute(string.format("rm %s", conf["local"]))==0
+		return os.execute(string.format("rm -v %s", conf["local"]))==0
+	end
+}
+
+-- CP FILE
+
+driver["cp-file"]={
+	down = function(conf)
+		mkdirIfNot(dirPart(conf["local"]))
+		return os.execute(string.format("cp -v %s %s", conf.remote, conf["local"]))
+	end,
+	
+	up = function(conf)
+		mkdirIfNot(dirPart(conf.remote))
+		return os.execute(string.format("cp -v %s %s", conf["local"], conf.remote))
+	end,
+	
+	away = function(conf)
+		return os.execute(string.format("rm -v %s", conf["local"]))
+	end
+}
+
+-- CP DIR
+
+driver["cp-dir"]={
+	down = function(conf)
+		mkdirIfNot(conf["local"])
+		return os.execute(string.format("cp -v -r %s/* %s", conf.remote, conf["local"]))
+	end,
+	
+	up = function(conf)
+		mkdirIfNot(conf.remote)
+		return os.execute(string.format("cp -v -r %s/* %s", conf["local"], conf.remote))
+	end,
+	
+	away = function(conf)
+		return os.execute(string.format("rm -r -v %s/*", conf["local"]))
 	end
 }
 
@@ -131,9 +175,8 @@ driver["ftp-dir"]={
 	end,
 	
 	away = function(conf)
-		return os.execute(string.format("rm -rf %s", conf["local"]))
+		return os.execute(string.format("rm -v -r %s/*", conf["local"]))
 	end
-	
 	
 }
 
@@ -141,16 +184,37 @@ driver["ftp-dir"]={
 
 driver["fossil"]={
 	down=function(conf)
-		--local ret=os.execute(string.format("cd %s;fossil status", conf["local"]))
-		--print(ret)
-		--os.exit()
-		local ret=os.execute(string.format("fossil clone %s %s.foss", conf.remote, conf["local"]))
+		local ret=nil
+		if os.execute(string.format("cd %s", conf["local"]))==0 then
+			local ret=os.execute(string.format("cd %s;fossil status", conf["local"]))
+		end
 		if ret==0 then
-			ret=os.execute(string.format("mkdir -p %s; cd %s; fossil open ../%s.foss", conf["local"], conf["local"], conf["local"]))
+			os.execute(string.format("cd %s;fossil pull", conf["local"]))
+		else
+			mkdirIfNot(".repos")
+			local ret=os.execute(string.format("fossil clone %s .repos/%s.foss", conf.remote, lastPart(conf["local"])))
 			if ret==0 then
-				return true
+				mkdirIfNot(conf["local"])
+				local tmpf=os.tmpname()
+				os.execute(string.format("pwd>%s",tmpf))
+				local tmf=io.open(tmpf)
+				local pwd=tmf:read()
+				tmf:close()
+				print(pwd)
+				ret=os.execute(string.format("cd %s; fossil open %s/.repos/%s.foss", conf["local"], pwd, conf["local"]))
+				if ret==0 then
+					return true
+				end
 			end
 		end
+	end,
+	
+	up = function(conf)
+		return nil
+	end,
+	
+	away = function(conf)
+	
 	end
 }
 
