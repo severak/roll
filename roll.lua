@@ -10,6 +10,13 @@
 -- LIB
 ----
 function parseIni(filename)
+	local fh=io.open(filename,"r")
+	if fh then
+		fh:close()
+	else
+		print("Rollfile not found!")
+		os.exit()
+	end
 	local ret={}
 	local section="default"
 	for line in io.lines(filename) do
