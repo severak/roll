@@ -97,6 +97,43 @@ function lastPart(path)
 	return dp
 end
 
+function verbose(cmd)
+	print(">"..cmd)
+	return os.execute(cmd)
+end
+
+fileIn = function(conf, dest)
+	mkdirIfNot(dirPart(dest.."/"..conf["local"]))
+	return os.execute(string.format("cp %s %s", conf["local"], dest.."/"..conf["local"] ))==0
+end
+
+dirIn = function(conf, dest)
+	mkdirIfNot(dest.."/"..conf["local"])
+	return os.execute(string.format("cp -v -r %s/* %s", conf["local"], dest.."/"..conf["local"]))==0
+end
+
+function rollIn(subjs, cfg)
+	local subjs=query(arg[2], cfg)
+	local tmpdir=os.tmpname()
+	os.execute(string.format("rm %s",tmpdir))
+	os.execute(string.format("mkdir -p %s",tmpdir))
+	for _,subj in pairs(subjs) do
+		local conf=cfg[subj]
+		local ret=nil
+		if conf.type and driver[conf.type] and type(driver[conf.type]["in"])=="function" then
+			ret=driver[conf.type]["in"](conf, tmpdir)
+		end
+		if ret then
+			print(string.format("[%s] ok",subj))
+		else
+			print(string.format("[%s] failed",subj))
+		end
+	end
+	local today=os.date("*t")
+	local aname = string.format("bck%04d%02d%02d-%02d%02d.tgz", today.year, today.month, today.day, today.hour, today.min)
+	os.execute(string.format("tar -czvf %s %s", aname,tmpdir))
+	print(string.format("%s created!", aname))
+end
 
 driver={}
 ----
@@ -109,6 +146,12 @@ driver.nop.up=function()
 	return true
 end
 driver.nop.down=driver.nop.up
+driver.nop.away=driver.nop.up
+driver.nop["in"] = function()
+	print("nop driver not performing rolling in!")
+	return false
+end
+
 
 -- CURL HTTP DRIVER
 
@@ -117,12 +160,16 @@ driver["http-file"]={
 		mkdirIfNot(dirPart(conf["local"]))
 		return os.execute(string.format("wget -O %s %s", conf["local"], conf.remote))==0
 	end,
+	
 	up = function(conf)
 		return false
 	end,
+	
 	away = function(conf)
 		return os.execute(string.format("rm -v %s", conf["local"]))==0
-	end
+	end,
+	
+	["in"] = fileIn
 }
 
 -- CP FILE
@@ -140,7 +187,9 @@ driver["cp-file"]={
 	
 	away = function(conf)
 		return os.execute(string.format("rm -v %s", conf["local"]))
-	end
+	end,
+	
+	["in"] = fileIn
 }
 
 -- CP DIR
@@ -158,7 +207,9 @@ driver["cp-dir"]={
 	
 	away = function(conf)
 		return os.execute(string.format("rm -r -v %s/*", conf["local"]))
-	end
+	end,
+	
+	["in"] = dirIn
 }
 
 -- FTP DRIVER (WGET/WPUT)
@@ -169,20 +220,45 @@ driver["ftp-dir"]={
 	end,
 	
 	up = function(conf)
-		local rem=conf.remote:match("ftp://(.+)")
-		local rem=string.format("ftp://%s:%s@%s", conf.user, conf.pass, rem)
-		return os.execute(string.format("wput %s %s", conf["local"], rem))==0
+		--local rem=conf.remote:match("ftp://(.+)")
+		--local rem=string.format("ftp://%s:%s@%s", conf.user, conf.pass, rem)
+		--return verbose(string.format("wput --basename=%s %s %s", dirPart(conf["local"]), conf["local"], rem))==0
+		print("disabled due security reasons")
+		return false
 	end,
 	
 	away = function(conf)
 		return os.execute(string.format("rm -v -r %s/*", conf["local"]))
-	end
+	end,
+	
+	["in"] = dirIn
+	
+}
+
+driver["ftp-file"]={
+	down = function(conf)
+		mkdirIfNot(dirPart(conf["local"]))
+		return verbose(string.format("wget --user=%s --password=%s %s>%s", conf.user, conf.pass, conf.remote, conf["local"]))==0
+	end,
+	
+	up = function(conf)
+		local rem=conf.remote:match("ftp://(.+)")
+		local rem=string.format("ftp://%s:%s@%s", conf.user, conf.pass, rem)
+		return verbose(string.format("wput -u %s %s", conf["local"], rem))
+	end,
+	
+	away = function(conf)
+		return os.execute(string.format("rm -v %s", conf["local"]))==0
+	end,
+	
+	["in"] = fileIn
 	
 }
 
 -- FOSSIL DRIVER
+-- this driver is very incomplete
 
-driver["fossil"]={
+--[[driver["fossil"]={
 	down=function(conf)
 		local ret=nil
 		if os.execute(string.format("cd %s", conf["local"]))==0 then
@@ -216,7 +292,7 @@ driver["fossil"]={
 	away = function(conf)
 	
 	end
-}
+}]]
 
 ----
 -- MAIN
@@ -226,6 +302,14 @@ local cmd = arg[1] or "help"
 if cmd=="list" then
 	local subjs=query(arg[2] or ".", cfg)
 	list(subjs, cfg)
+elseif cmd=="in" then
+	if arg[2] then
+		local subjs=query(arg[2], cfg)
+		rollIn(subjs, cfg)
+	else
+		print("What you want roll in?")
+	end
+	
 else
 	local subjs=query(arg[2] or ".", cfg)
 	for _,subj in pairs(subjs) do
