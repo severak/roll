@@ -46,6 +46,12 @@ end
 function list(subjs, cfg)
 	for _,name in pairs(subjs) do
 		print(string.format("[%s] (driver:%s)", name, cfg[name]["type"] or "unknown"))
+		if cfg[name]["author"] then
+			print(string.format("Author: %s",cfg[name]["author"]))
+		end
+		if cfg[name]["license"] then
+			print(string.format("License: %s",cfg[name]["license"]))
+		end
 		if cfg[name]["info"] then
 			print(cfg[name]["info"])
 		end
@@ -54,6 +60,10 @@ function list(subjs, cfg)
 end
 
 function doCmd(subj, cmd, conf)
+	if not conf then 
+		print(string.format("[%s] not found in rollfile!",subj))
+		return nil
+	end
 	if driver[conf.type] then
 		if type(driver[conf.type][cmd])=="function" then
 			local ok=driver[conf.type][cmd](conf)
@@ -263,33 +273,12 @@ driver["ftp-file"]={
 }
 
 -- FOSSIL DRIVER
--- this driver is very incomplete
 
---[[driver["fossil"]={
+driver["fossil"]={
 	down=function(conf)
-		local ret=nil
-		if os.execute(string.format("cd %s", conf["local"]))==0 then
-			local ret=os.execute(string.format("cd %s;fossil status", conf["local"]))
-		end
-		if ret==0 then
-			os.execute(string.format("cd %s;fossil pull", conf["local"]))
-		else
-			mkdirIfNot(".repos")
-			local ret=os.execute(string.format("fossil clone %s .repos/%s.foss", conf.remote, lastPart(conf["local"])))
-			if ret==0 then
-				mkdirIfNot(conf["local"])
-				local tmpf=os.tmpname()
-				os.execute(string.format("pwd>%s",tmpf))
-				local tmf=io.open(tmpf)
-				local pwd=tmf:read()
-				tmf:close()
-				print(pwd)
-				ret=os.execute(string.format("cd %s; fossil open %s/.repos/%s.foss", conf["local"], pwd, conf["local"]))
-				if ret==0 then
-					return true
-				end
-			end
-		end
+		mkdirIfNot(dirPart(conf["local"]))
+		local ret=os.execute(string.format("fossil clone %s %s", conf.remote, conf["local"]))
+		return ret
 	end,
 	
 	up = function(conf)
@@ -297,9 +286,23 @@ driver["ftp-file"]={
 	end,
 	
 	away = function(conf)
-	
+		return os.execute(string.format("rm -v %s", conf["local"]))==0
 	end
-}]]
+}
+
+-- GIT DRIVER
+
+driver["git"]={
+	down=function(conf)
+		mkdirIfNot(dirPart(conf["local"]))
+		local ret=os.execute(string.format("git clone %s %s", conf.remote, conf["local"]))
+		return ret
+	end,
+	
+	up=function(conf)
+		return nil
+	end,
+}
 
 ----
 -- MAIN
