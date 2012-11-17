@@ -170,7 +170,7 @@ driver.nop["in"] = function()
 end
 
 
--- CURL HTTP DRIVER
+-- HTTP-FILE DRIVER
 
 driver["http-file"]={
 	down = function(conf)
@@ -187,6 +187,37 @@ driver["http-file"]={
 	end,
 	
 	["in"] = fileIn
+}
+
+-- HTTP-DIR DRIVER
+
+driver["http-dir"]={
+	down = function(conf)
+		local files = conf.files or ""
+		local failed = 0
+		mkdirIfNot(conf["local"])
+		for filename in files:gmatch("[%a%d/.]+") do
+			mkdirIfNot(conf["local"].."/"..dirPart(filename))
+			if not (os.execute(string.format("wget -O %s/%s %s/%s", conf["local"], filename, conf.remote, filename))==0) then
+				failed = failed +1
+			end
+		end
+		if failed==0 then
+			return true
+		else
+			print(string.format("%d files failed!", failed))
+		end
+	end,
+
+	up = function(conf)
+		return false
+	end,
+
+	away = function(conf)
+		return os.execute(string.format("rm -r -v %s/*", conf["local"]))
+	end,
+	
+	["in"] = dirIn
 }
 
 -- CP FILE

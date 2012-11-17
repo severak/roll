@@ -26,6 +26,7 @@ Drivers
 
  - nop (does nothing)
  - http-file
+ - http-dir
  - cp-file
  - cp-dir
  - ftp-file
